@@ -1,7 +1,21 @@
 <html>
 	<head>
 		<title>Ibiza Performance Analyzer</title>
-		<link rel="stylesheet" href="http://ajax.aspnetcdn.com/ajax/jquery.ui/1.11.4/themes/redmond/jquery-ui.css">
+		<link rel="stylesheet" href="http://ajax.aspnetcdn.com/ajax/jquery.ui/1.11.4/themes/redmond/jquery-ui.css"></link>
+		<style>
+			.ui-autocomplete {
+				max-height: 200px;
+				overflow-y: auto;
+				overflow-x: hidden;
+			}
+			.ui-button-text {
+				font-size: .6em;
+			}
+			#toolbar {
+				padding: 4px;
+				display: inline-block;
+			}
+		</style>
 		<script type="text/javascript" src="http://ajax.aspnetcdn.com/ajax/jQuery/jquery-2.1.4.min.js"></script>
 		<script type="text/javascript" src="http://ajax.aspnetcdn.com/ajax/jquery.ui/1.11.4/jquery-ui.min.js"></script>
 		<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js"></script>
@@ -10,13 +24,9 @@
 		<script>
 			var DB = [],
 				ActiveRecord = null,
-				DBFiltered = [],
-				Selected = {
-					record: null,
-					action: null,
-					name: null,
-					duration: null,
-				};
+				SortStartTime = true,
+				ColorName = true,
+				DBFiltered = [];
 			
 			function Output(msg) {
 				var m = $("#messages")[0];
@@ -62,16 +72,16 @@
 				}
 				function ParseFile(file) {
 					Output(
-						"<p>File information: <strong>" + file.name +
+						"File information: <strong>" + file.name +
 						"</strong> type: <strong>" + file.type +
 						"</strong> size: <strong>" + file.size +
-						"</strong> bytes</p>"
+						"</strong> bytes.<br>"
 					);
 					if (file.type !== "application/x-zip-compressed") {
-					 	Output("<p><strong>ERROR: </strong>Please provide a .zip file.");
+					 	Output("<p><strong>ERROR: </strong>Please provide a .zip file.</p>");
 						return;
 					}
-					Output("<p>Unzipping ...</p>");
+					Output("Unzipping ...<br>");
 					var reader = new FileReader();
 					reader.onload = function(e) {
 						var z = new JSZip(e.target.result);
@@ -79,7 +89,7 @@
 							var content = zipEntry.asText();
 							DB = [];
 							StartTime = Number.MAX_VALUE;
-							Output("<p>Parsing into CSV ...</p>");
+							Output("Parsing into CSV ...<br>");
 							Papa.parse(content, {
 								header:true,
 								dynamicTyping:true,
@@ -102,9 +112,12 @@
 									}
 								},
 								complete: function() {
-									Output("<p>Found "+DB.length+" records.</p>");
+									Output("Found "+DB.length+" records.<br><br>");
+									$("#loadpanel").hide();
+									$("#graphpanel").show();
 									$("#names").val("");
 									$("#actions").val("");
+									$("#plot").empty();
 									// let user select action
 									actionsArray = GetActions(DB);
 									$("#actions").autocomplete({
@@ -144,7 +157,12 @@
 				function SearchNames() {
 					var action = $("#actions").val();
 					var namesArray = GetNames(DB,action);
-					$("#names").val("");
+					if (namesArray.length == 1) {
+						$("#names").val(namesArray[0]);
+						plot(filterDB(DB,action,namesArray[0]));
+					} else {
+						$("#names").val("");
+					}
 					$("#names").autocomplete({
 						source: function(req,res) {
 							var term = req.term.toLowerCase();
@@ -212,6 +230,31 @@
 						return 0;
 					});
 				}
+				
+				$("#new").button().click(function(){
+					$("#loadpanel").show();
+					$("#graphpanel").hide();
+				});
+				
+				$("#sort").buttonset();
+				$("#starttime").change(function(e) {
+					SortStartTime = true;
+					plot(DBFiltered);
+				});
+				$("#endtime").change(function(e) {
+					SortStartTime = false;
+					plot(DBFiltered);
+				});
+
+				$("#color").buttonset();
+				$("#colorname").change(function(e) {
+					ColorName = true;
+					plot(DBFiltered);
+				});
+				$("#coloraction").change(function(e) {
+					ColorName = false;
+					plot(DBFiltered);
+				});
 			});
 			
 			function filterDB(db,action,durname) {
@@ -228,13 +271,6 @@
 					return ActiveRecord.clientTimeStart <= r.clientTime && ActiveRecord.clientTime >= r.clientTimeStart;					
 				});
 
-				// adjust times
-				// var startTime = Number.MAX_VALUE;
-				// data.forEach(function(r){
-				// 	if (r.clientTimeStart < startTime) {
-				// 		startTime = r.clientTimeStart;
-				// 	}
-				// });
 				var startTime = ActiveRecord.clientTimeStart;
 				DBFiltered.forEach(function(r) {
 					r.startTime = r.clientTimeStart - startTime;
@@ -246,8 +282,9 @@
 			
 			function plot(data) {
 				var margin = {top: 20, right: 20, bottom: 30, left: 40},
+					lineheight = 6,
 					width = 960 - margin.left - margin.right,
-					height = 1000 - margin.top - margin.bottom;
+					height = data.length * (lineheight+1);
 
 				var x = d3.scale.linear()
 					.range([0, width]);
@@ -264,7 +301,26 @@
 				var yAxis = d3.svg.axis()
 					.scale(y)
 					.orient("left");
-				
+					
+				data.sort(function(a,b){
+					var atime = SortStartTime?a.startTime:a.endTime;
+					var btime = SortStartTime?b.startTime:b.endTime;
+					if(atime < btime) {
+						return -1;
+					} else if (atime > btime) {
+						return 1;
+					} else {
+						atime = !SortStartTime?a.startTime:a.endTime;
+						btime = !SortStartTime?b.startTime:b.endTime;						
+						if(atime < btime) {
+							return -1;
+						} else if (atime > btime) {
+							return 1;
+						}
+					}
+					return 0;
+				});
+					
 				$("#plot").empty();
 				var svg = d3.select("#plot").append("svg")
 					.attr("width", width + margin.left + margin.right)
@@ -302,10 +358,10 @@
 					.enter().append("rect")
 					.attr("class", "range")
 					.attr("x", function(d) { return x(d.startTime); })
-					.attr("y", function(d,i) { return y(i); })
-					.attr("width", function(d) { return x((d.duration >= 4)?d.duration:4); })
-					.attr("height", 4)
-					.style("fill", function(d) { return color(d.name); })
+					.attr("y", function(d,i) { return y(i + 1); })
+					.attr("width", function(d) { return x((d.duration >= 10)?d.duration:10); })
+					.attr("height", lineheight)
+					.style("fill", function(d) { return color(ColorName?d.name:d.action); })
 					.append("svg:title")
 					.text(function(d) { 
 						var tooltip =
@@ -321,27 +377,48 @@
 	</head>
 	<body>
 		<h1>Ibiza Performance Analyzer</h1>
-		<form id="upload" action="upload" method="POST" enctype="multipart/form-data">
-			<fieldset>
-				<legend>Drag and Drop or Upload a Jarvis .zip File</legend>
-				<input type="file" id="fileselect" name="fileselect" />
-				<div id="filedrag">
-					<img id="uploadTarget" src="img/DragDropFile.png" width="20%" height="20%">
-				</div>
-				<div id="submitbutton">
-					<button type="submit">Upload File</button>
-				</div>
-			</fieldset>
-		</form>
-		<div id="messages">
-			<h3>Status Messages:</h3>
+		<div id="loadpanel">
+			<ul>
+				<li>Select telemetry from a single session using Jarvis, i.e. <a href="https://jarvis-west.dc.ad.msft.net/84D6E4DF">https://jarvis-west.dc.ad.msft.net/84D6E4DF</a></li>
+				<li>Use the CSV download button <img src="img/JarvisDownloadBtn.png" height="16"> to download the results as a .zip file.</li>
+				<li>Drag and drop the zip file below.</li> 
+			</ul>
+			<form id="upload" action="upload" method="POST" enctype="multipart/form-data">
+				<fieldset>
+					<legend>Drag and Drop or Upload a Jarvis .zip File</legend>
+					<input type="file" id="fileselect" name="fileselect" />
+					<div id="filedrag">
+						<img id="uploadTarget" src="img/DragDropFile.png" width="20%" height="20%">
+					</div>
+					<div id="submitbutton">
+						<button type="submit">Upload File</button>
+					</div>
+				</fieldset>
+			</form>
+			<div id="messages">
+				<h3>Status Messages:</h3>
+			</div>
 		</div>
-		<div id="selections" class="ui-widget">
-			<label for="actions">Action: </label>
-			<input id="actions" style="width:250px" />
-			<label for="names">Name: </label>
-			<input id="names" style="width:800px" />
+		<div id="graphpanel" style="display:none; width:100%">
+			<h4>Select Action and Name (if needed), then hover to see the details of each bar.</h4>
+			<div id="toolbar" class="ui-widget-header ui-corner-all" style="width:99%">
+				<label for="actions">Action: </label>
+				<input id="actions" style="width:150px" />
+				<label for="names">Name: </label>
+				<input id="names" style="width:600px" />
+				<label for="sort">Sort By: </label>
+				<span id="sort">
+					<input type="radio" id="starttime" name="sort" checked="checked"><label for="starttime">Start Time</label>
+					<input type="radio" id="endtime" name="sort"><label for="endtime">End Time</label>
+				</span>
+				<label for="color">Color By: </label>
+				<span id="color">
+					<input type="radio" id="colorname" name="color" checked="checked"><label for="colorname">Name</label>
+					<input type="radio" id="coloraction" name="color"><label for="coloraction">Action</label>
+				</span>
+				<button id="new">New</button>
+			</div>
+			<div id="plot"></div>
 		</div>
-		<div id="plot"></div>
 	</body>
 </html>
