@@ -96,6 +96,7 @@
 								step: function(row) {
 									var r = row.data[0],
 										stime;
+									r.duration = Math.round(r.duration);
 									if (r.actionModifier === "complete") {
 										stime = r.clientTime - r.duration;
 										if (stime < StartTime) {
